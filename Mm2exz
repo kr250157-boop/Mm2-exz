@@ -1,0 +1,337 @@
+--[======================================================--
+--    ชื่อสคริปต์: EXZ Hub (MM2 Edition) - Fixed UI
+--    ฟังก์ชัน: หน้าจอโหลด -> เข้าหน้าเมนู, โลโก้, ย่อ/ขยาย, ESP, Aimbot
+--======================================================--
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local Settings = {
+    ESPEnabled = false,
+    AimbotEnabled = false
+}
+
+-- ==================== ระบบระบุบทบาทใน MM2 ====================
+local function GetPlayerRole(player)
+    if not player or not player.Character then return "Innocent", Color3.fromRGB(0, 255, 0) end
+    local char = player.Character
+    local backpack = player:FindFirstChild("Backpack")
+    
+    local hasKnife = (char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")))
+    local hasGun = (char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun")))
+    
+    if hasKnife then
+        return "Murderer", Color3.fromRGB(255, 0, 0)
+    elseif hasGun then
+        return "Sheriff", Color3.fromRGB(0, 150, 255)
+    else
+        return "Innocent", Color3.fromRGB(0, 255, 0)
+    end
+end
+
+-- ==================== UI สร้าง ScreenGui หลัก ====================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "EXZ_Hub_Gui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ==================== 2. สร้างหน้าต่างหลัก (Main Frame) รอไว้ก่อน ====================
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 280)
+mainFrame.Position = UDim2.new(0, 60, 0, 60)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Visible = false -- ซ่อนไว้ก่อนให้หน้าโหลดทำงาน
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
+
+-- แถบหัวข้อ (Top Bar)
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 40)
+topBar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 8)
+topCorner.Parent = topBar
+
+-- ตราสคริปต์ / โลโก้ (Badge Icon)
+local badgeIcon = Instance.new("TextLabel")
+badgeIcon.Size = UDim2.new(0, 30, 0, 30)
+badgeIcon.Position = UDim2.new(0, 8, 0, 5)
+badgeIcon.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+badgeIcon.Text = "EX"
+badgeIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+badgeIcon.Font = Enum.Font.GothamBold
+badgeIcon.TextSize = 12
+badgeIcon.Parent = topBar
+
+local badgeCorner = Instance.new("UICorner")
+badgeCorner.CornerRadius = UDim.new(0, 6)
+badgeCorner.Parent = badgeIcon
+
+-- ชื่อสคริปต์
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(0, 120, 1, 0)
+titleText.Position = UDim2.new(0, 45, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "EXZ Hub"
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 15
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = topBar
+
+-- ปุ่มย่อ/ขยายหน้าจอ (Minimize / Maximize Button)
+local isMinimized = false
+local minButton = Instance.new("TextButton")
+minButton.Size = UDim2.new(0, 30, 0, 30)
+minButton.Position = UDim2.new(1, -70, 0, 5)
+minButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+minButton.Text = "-"
+minButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+minButton.Font = Enum.Font.GothamBold
+minButton.TextSize = 16
+minButton.Parent = topBar
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 6)
+minCorner.Parent = minButton
+
+-- คอนเทนต์ภายในเมนู (Container สำหรับซ่อนเวลาดย่อจอ)
+local container = Instance.new("Frame")
+container.Size = UDim2.new(1, 0, 1, -40)
+container.Position = UDim2.new(0, 0, 0, 40)
+container.BackgroundTransparency = 1
+container.Parent = mainFrame
+
+minButton.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        mainFrame.Size = UDim2.new(0, 260, 0, 40)
+        container.Visible = false
+        minButton.Text = "+"
+    else
+        mainFrame.Size = UDim2.new(0, 260, 0, 280)
+        container.Visible = true
+        minButton.Text = "-"
+    end
+end)
+
+-- ==================== ฟังก์ชันภายในเมนู ====================
+
+-- 1. ปุ่ม ESP
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(0, 220, 0, 40)
+espBtn.Position = UDim2.new(0, 20, 0, 15)
+espBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+espBtn.Text = "ESP บทบาท: ปิด"
+espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+espBtn.Font = Enum.Font.Gotham
+espBtn.TextSize = 13
+espBtn.Parent = container
+
+local espCorner = Instance.new("UICorner")
+espCorner.CornerRadius = UDim.new(0, 6)
+espCorner.Parent = espBtn
+
+espBtn.MouseButton1Click:Connect(function()
+    Settings.ESPEnabled = not Settings.ESPEnabled
+    espBtn.Text = Settings.ESPEnabled and "ESP บทบาท: เปิด" or "ESP บทบาท: ปิด"
+    espBtn.BackgroundColor3 = Settings.ESPEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+-- 2. ปุ่ม Aimbot
+local aimBtn = Instance.new("TextButton")
+aimBtn.Size = UDim2.new(0, 220, 0, 40)
+aimBtn.Position = UDim2.new(0, 20, 0, 65)
+aimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+aimBtn.Text = "Aimbot ล็อคหัว (คลิกขวา): ปิด"
+aimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimBtn.Font = Enum.Font.Gotham
+aimBtn.TextSize = 12
+aimBtn.Parent = container
+
+local aimCorner = Instance.new("UICorner")
+aimCorner.CornerRadius = UDim.new(0, 6)
+aimCorner.Parent = aimBtn
+
+aimBtn.MouseButton1Click:Connect(function()
+    Settings.AimbotEnabled = not Settings.AimbotEnabled
+    aimBtn.Text = Settings.AimbotEnabled and "Aimbot ล็อคหัว: เปิด" or "Aimbot ล็อคหัว (คลิกขวา): ปิด"
+    aimBtn.BackgroundColor3 = Settings.AimbotEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+-- 3. แสดงผลฆาตกร (Murderer Detector)
+local murderLabel = Instance.new("TextLabel")
+murderLabel.Size = UDim2.new(0, 220, 0, 35)
+murderLabel.Position = UDim2.new(0, 20, 0, 115)
+murderLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+murderLabel.Text = "ฆาตกร: กำลังค้นหา..."
+murderLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+murderLabel.Font = Enum.Font.GothamBold
+murderLabel.TextSize = 12
+murderLabel.Parent = container
+
+local mCorner = Instance.new("UICorner")
+mCorner.CornerRadius = UDim.new(0, 6)
+mCorner.Parent = murderLabel
+
+-- เครดิต
+local credit = Instance.new("TextLabel")
+credit.Size = UDim2.new(1, 0, 0, 20)
+credit.Position = UDim2.new(0, 0, 1, -25)
+credit.BackgroundTransparency = 1
+credit.Text = "EXZ Hub | MM2"
+credit.TextColor3 = Color3.fromRGB(120, 120, 120)
+credit.TextSize = 10
+credit.Font = Enum.Font.GothamItalic
+credit.Parent = container
+
+
+-- ==================== 1. หน้าจอโหลด (Loading Screen) ====================
+local loadFrame = Instance.new("Frame")
+loadFrame.Size = UDim2.new(0, 300, 0, 150)
+loadFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
+loadFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+loadFrame.BorderSizePixel = 0
+loadFrame.Parent = screenGui
+
+local loadCorner = Instance.new("UICorner")
+loadCorner.CornerRadius = UDim.new(0, 10)
+loadCorner.Parent = loadFrame
+
+local loadTitle = Instance.new("TextLabel")
+loadTitle.Size = UDim2.new(1, 0, 0, 50)
+loadTitle.BackgroundTransparency = 1
+loadTitle.Text = "EXZ Hub"
+loadTitle.TextColor3 = Color3.fromRGB(0, 170, 255)
+loadTitle.Font = Enum.Font.GothamBold
+loadTitle.TextSize = 22
+loadTitle.Parent = loadFrame
+
+local loadStatus = Instance.new("TextLabel")
+loadStatus.Size = UDim2.new(1, 0, 0, 30)
+loadStatus.Position = UDim2.new(0, 0, 0, 50)
+loadStatus.BackgroundTransparency = 1
+loadStatus.Text = "กำลังโหลดสคริปต์..."
+loadStatus.TextColor3 = Color3.fromRGB(200, 200, 200)
+loadStatus.Font = Enum.Font.Gotham
+loadStatus.TextSize = 14
+loadStatus.Parent = loadFrame
+
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(0, 260, 0, 10)
+barBg.Position = UDim2.new(0.5, -130, 0, 95)
+barBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+barBg.BorderSizePixel = 0
+barBg.Parent = loadFrame
+
+local barBgCorner = Instance.new("UICorner")
+barBgCorner.CornerRadius = UDim.new(0, 5)
+barBgCorner.Parent = barBg
+
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+barFill.BorderSizePixel = 0
+barFill.Parent = barBg
+
+local barFillCorner = Instance.new("UICorner")
+barFillCorner.CornerRadius = UDim.new(0, 5)
+barFillCorner.Parent = barFill
+
+-- ออนิเมชันโหลด (เมื่อครบ 100% จะเปิดเมนูหลักทันที)
+task.spawn(function()
+    for i = 1, 100 do
+        barFill.Size = UDim2.new(i / 100, 0, 1, 0)
+        loadStatus.Text = "กำลังโหลดทรัพยากร... " .. i .. "%"
+        task.wait(0.015)
+    end
+    loadStatus.Text = "โหลดสำเร็จ!"
+    task.wait(0.4)
+    loadFrame:Destroy()
+    mainFrame.Visible = true -- เปิดหน้าต่างหลักหลังโหลดเสร็จ
+end)
+
+
+-- ==================== ระบบการทำงานเบื้องหลัง (Runtime) ====================
+local espHighlights = {}
+
+RunService.RenderStepped:Connect(function()
+    -- ระบบ ESP
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local role, color = GetPlayerRole(player)
+            local highlight = espHighlights[player]
+            
+            if Settings.ESPEnabled then
+                if not highlight or not highlight.Parent then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "EXZ_ESP"
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = player.Character
+                    espHighlights[player] = highlight
+                end
+                highlight.FillColor = color
+                highlight.OutlineColor = color
+            else
+                if highlight then
+                    highlight:Destroy()
+                    espHighlights[player] = nil
+                end
+            end
+        end
+    end
+    
+    -- ระบบ Aimbot (คลิกขวาค้าง)
+    if Settings.AimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local closestPlayer = nil
+        local shortestDist = math.huge
+        local mousePos = UserInputService:GetMouseLocation()
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+                local head = player.Character.Head
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if dist < shortestDist and dist < 250 then
+                        shortestDist = dist
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+        
+        if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("Head") then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, closestPlayer.Character.Head.Position)
+        end
+    end
+    
+    -- อัปเดตรายชื่อฆาตกร
+    local foundM = false
+    for _, player in ipairs(Players:GetPlayers()) do
+        if GetPlayerRole(player) == "Murderer" then
+            murderLabel.Text = "ฆาตกร: " .. player.DisplayName
+            murderLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+            foundM = true
+            break
+        end
+    end
+    if not foundM then
+        murderLabel.Text = "ฆาตกร: ยังไม่ถือมีด / หาไม่พบ"
+        murderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end)
